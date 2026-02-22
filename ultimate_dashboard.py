@@ -13,6 +13,23 @@ from collections import deque
 import psutil
 import statistics
 import random
+import os
+import numpy as np
+from typing import Optional
+
+from predictive.telemetry_generator import (
+    generate_synthetic_telemetry,
+    train_test_split,
+    sliding_window,
+)
+from predictive.lstm_predictor import (
+    ModelConfig,
+    train_lstm,
+    save_model,
+    load_model,
+    predict_sequence,
+    TrainResult,
+)
 
 app = Flask(__name__)
 CORS(app)
@@ -38,6 +55,305 @@ alerts = {
     'adaptive': deque(maxlen=50),
     'traditional': deque(maxlen=50)
 }
+
+# Predictive system state
+predictive_history = deque(maxlen=300)
+predictive_alerts = deque(maxlen=100)
+action_log = deque(maxlen=200)
+
+PREDICTIVE_CONFIG = {
+    'window_size': 24,
+    'horizon': 6,
+    'interval_seconds': 2,
+    'congestion_threshold': 80.0,
+}
+
+MODEL_PATH = os.path.join(os.path.dirname(__file__), 'predictive', 'lstm_model.pt')
+
+
+class PredictiveEngine:
+    def __init__(self) -> None:
+        self.window_size = PREDICTIVE_CONFIG['window_size']
+        self.horizon = PREDICTIVE_CONFIG['horizon']
+        self.interval_seconds = PREDICTIVE_CONFIG['interval_seconds']
+        self.congestion_threshold = PREDICTIVE_CONFIG['congestion_threshold']
+        self.feature_keys = [
+            'link_utilization_percent',
+            'latency_ms',
+            'packet_loss_percent',
+            'queue_depth',
+            'flow_count',
+        ]
+        self.telemetry = deque(maxlen=1000)
+        self.synthetic_stream = generate_synthetic_telemetry(
+            2000, interval_seconds=self.interval_seconds
+        )
+        self.synthetic_index = 0
+        self.model = None
+        self.scaler = None
+        self.metrics = None
+        self.status = 'initializing'
+        self._action_id = 0
+        self.pending_actions = deque(maxlen=50)
+
+        self._initialize_model()
+
+    def _initialize_model(self) -> None:
+        loaded = load_model(MODEL_PATH)
+        if loaded:
+            self.model, self.scaler, _, self.metrics = loaded
+            self.status = 'ready'
+            return
+
+        data = generate_synthetic_telemetry(1500, interval_seconds=self.interval_seconds)
+        train_data, test_data = train_test_split(data, train_ratio=0.8)
+        x_train, y_train = sliding_window(
+            train_data, self.window_size, self.horizon, self.feature_keys
+        )
+        x_val, y_val = sliding_window(
+            test_data, self.window_size, self.horizon, self.feature_keys
+        )
+
+        if not x_train or not x_val:
+            self.status = 'data_error'
+            return
+
+        x_train = np.asarray(x_train, dtype=np.float32)
+        y_train = np.asarray(y_train, dtype=np.float32)
+        x_val = np.asarray(x_val, dtype=np.float32)
+        y_val = np.asarray(y_val, dtype=np.float32)
+
+        config = ModelConfig(input_size=len(self.feature_keys), horizon=self.horizon)
+        model, scaler, metrics = train_lstm(
+            x_train=x_train,
+            y_train=y_train,
+            x_val=x_val,
+            y_val=y_val,
+            config=config,
+            congestion_threshold=self.congestion_threshold,
+        )
+
+        save_model(MODEL_PATH, model, scaler, config, metrics)
+        self.model = model
+        self.scaler = scaler
+        self.metrics = metrics
+        self.status = 'ready'
+
+    def _next_synthetic(self) -> dict:
+        if self.synthetic_index >= len(self.synthetic_stream):
+            self.synthetic_stream = generate_synthetic_telemetry(
+                2000, interval_seconds=self.interval_seconds
+            )
+            self.synthetic_index = 0
+        sample = self.synthetic_stream[self.synthetic_index]
+        self.synthetic_index += 1
+        return sample
+
+    def _blend_value(self, synthetic: float, live: float, weight_live: float = 0.4) -> float:
+        return (1 - weight_live) * synthetic + weight_live * live
+
+    def append_live_sample(self, adaptive_metric: dict, traditional_metric: dict) -> dict:
+        synthetic = self._next_synthetic()
+
+        util_live = float(adaptive_metric.get('throughput', 0)) * 20.0
+        latency_live = float(adaptive_metric.get('latency', 0))
+        loss_live = float(adaptive_metric.get('packet_loss', 0))
+        queue_live = util_live * 1.8 + float(adaptive_metric.get('flows', 0)) * 2.5
+        flow_count_live = float(adaptive_metric.get('flows', 0)) * 20
+
+        blended = {
+            'timestamp': datetime.utcnow().isoformat(),
+            'link_utilization_percent': max(0.0, min(100.0, self._blend_value(
+                synthetic['link_utilization_percent'], util_live
+            ))),
+            'latency_ms': max(0.5, self._blend_value(synthetic['latency_ms'], latency_live)),
+            'packet_loss_percent': max(0.0, self._blend_value(synthetic['packet_loss_percent'], loss_live)),
+            'queue_depth': max(0.0, self._blend_value(synthetic['queue_depth'], queue_live)),
+            'flow_count': int(max(1.0, self._blend_value(synthetic['flow_count'], flow_count_live))),
+            'traditional_utilization_percent': float(traditional_metric.get('throughput', 0)) * 20.0,
+        }
+
+        self.telemetry.append(blended)
+        return blended
+
+    def _prepare_window(self) -> Optional[np.ndarray]:
+        if len(self.telemetry) < self.window_size:
+            return None
+        window = list(self.telemetry)[-self.window_size :]
+        return np.asarray([[float(row[k]) for k in self.feature_keys] for row in window], dtype=np.float32)
+
+    def _confidence(self) -> float:
+        if not self.metrics:
+            return 0.5
+        return max(0.2, 1.0 - min(1.0, self.metrics.rmse / 100.0))
+
+    def update_prediction(self) -> Optional[dict]:
+        if self.status != 'ready' or self.model is None or self.scaler is None:
+            return None
+
+        window = self._prepare_window()
+        if window is None:
+            return None
+
+        preds = predict_sequence(self.model, self.scaler, window)
+        now = datetime.utcnow()
+        predicted = []
+        for i, value in enumerate(preds):
+            predicted.append({
+                'timestamp': (now + timedelta(seconds=self.interval_seconds * (i + 1))).isoformat(),
+                'utilization': float(max(0.0, min(100.0, value))),
+            })
+
+        actual_recent = list(self.telemetry)[-min(12, len(self.telemetry)) :]
+        actual = [
+            {'timestamp': row['timestamp'], 'utilization': float(row['link_utilization_percent'])}
+            for row in actual_recent
+        ]
+
+        congestion_probability = float(
+            sum(1 for p in predicted if p['utilization'] >= self.congestion_threshold) / max(len(predicted), 1)
+        )
+
+        payload = {
+            'timestamp': now.isoformat(),
+            'actual': actual,
+            'predicted': predicted,
+            'congestion_probability': congestion_probability,
+            'confidence': self._confidence(),
+        }
+        predictive_history.append(payload)
+        return payload
+
+    def _emit_alert(self, alert_type: str, severity: str, message: str, command: str, rollback: Optional[str]) -> None:
+        timestamp = datetime.utcnow().isoformat()
+        alert = {
+            'type': alert_type,
+            'severity': severity,
+            'message': message,
+            'command': command,
+            'timestamp': timestamp,
+        }
+        predictive_alerts.append(alert)
+        action_log.append({
+            'action': alert_type,
+            'command': command,
+            'timestamp': timestamp,
+        })
+
+        if rollback:
+            self._action_id += 1
+            self.pending_actions.append({
+                'id': self._action_id,
+                'timestamp': datetime.utcnow(),
+                'rollback': rollback,
+            })
+
+    def _check_rollbacks(self) -> None:
+        if not self.pending_actions:
+            return
+        now = datetime.utcnow()
+        keep = deque(maxlen=50)
+        for action in list(self.pending_actions):
+            if (now - action['timestamp']).total_seconds() < self.interval_seconds * self.horizon:
+                keep.append(action)
+                continue
+
+            if self.telemetry and self.telemetry[-1]['link_utilization_percent'] < self.congestion_threshold:
+                action_log.append({
+                    'action': 'rollback',
+                    'command': action['rollback'],
+                    'timestamp': now.isoformat(),
+                })
+            else:
+                keep.append(action)
+        self.pending_actions = keep
+
+    def evaluate_actions(self, prediction: Optional[dict]) -> None:
+        if not prediction:
+            return
+
+        self._check_rollbacks()
+
+        latest = self.telemetry[-1] if self.telemetry else None
+        if not latest:
+            return
+
+        predicted_util = max(p['utilization'] for p in prediction['predicted'])
+        if predicted_util >= self.congestion_threshold:
+            self._emit_alert(
+                'predicted_congestion',
+                'HIGH',
+                'Congestion predicted within horizon, proactive reroute initiated.',
+                'sdn_controller_cli set_path_weight spine2-leaf5 weight=70',
+                'sdn_controller_cli set_path_weight spine2-leaf5 weight=50',
+            )
+
+        if len(self.telemetry) >= 2:
+            delta = latest['link_utilization_percent'] - self.telemetry[-2]['link_utilization_percent']
+            if delta > 20 and latest['link_utilization_percent'] > 70:
+                self._emit_alert(
+                    'sudden_spike',
+                    'MEDIUM',
+                    'Sudden spike detected, rerouting high bandwidth flows.',
+                    'sdn_controller_cli reroute flow_id=1245 alternate_path=spine3',
+                    'sdn_controller_cli reroute flow_id=1245 alternate_path=spine1',
+                )
+
+        recent = list(self.telemetry)[-5:]
+        if len(recent) == 5:
+            avg_util = sum(r['link_utilization_percent'] for r in recent) / 5
+            avg_flows = sum(r['flow_count'] for r in recent) / 5
+            if avg_util > 85 and avg_flows > 200:
+                self._emit_alert(
+                    'ddos_pattern',
+                    'HIGH',
+                    'Sustained overload pattern detected, applying rate limit.',
+                    'sdn_controller_cli apply_qos policy=rate_limit_1Gbps interface=leaf3',
+                    'sdn_controller_cli remove_qos policy=rate_limit_1Gbps interface=leaf3',
+                )
+
+            latencies = [r['latency_ms'] for r in recent]
+            util_avg = sum(r['link_utilization_percent'] for r in recent) / 5
+            if util_avg < 60 and latencies[-1] - latencies[0] > 5:
+                self._emit_alert(
+                    'link_degradation',
+                    'MEDIUM',
+                    'Latency increase detected, shifting latency-sensitive flows.',
+                    'sdn_controller_cli move_flow class=latency_sensitive path=low_latency_path',
+                    'sdn_controller_cli move_flow class=latency_sensitive path=default_path',
+                )
+
+    def update(self, adaptive_metric: dict, traditional_metric: dict) -> Optional[dict]:
+        self.append_live_sample(adaptive_metric, traditional_metric)
+        prediction = self.update_prediction()
+        self.evaluate_actions(prediction)
+        return prediction
+
+    def get_latest_prediction(self) -> dict:
+        if predictive_history:
+            return predictive_history[-1]
+        return {
+            'timestamp': datetime.utcnow().isoformat(),
+            'actual': [],
+            'predicted': [],
+            'congestion_probability': 0.0,
+            'confidence': 0.0,
+        }
+
+    def get_metrics(self) -> dict:
+        if not self.metrics:
+            return {'rmse': 0.0, 'mae': 0.0, 'r2': 0.0, 'precision': 0.0, 'recall': 0.0, 'f1': 0.0}
+        return {
+            'rmse': self.metrics.rmse,
+            'mae': self.metrics.mae,
+            'r2': self.metrics.r2,
+            'precision': self.metrics.precision,
+            'recall': self.metrics.recall,
+            'f1': self.metrics.f1,
+        }
+
+
+predictive_engine = PredictiveEngine()
 
 # ============================================================================
 # TOPOLOGY DEFINITION
@@ -292,6 +608,9 @@ def update_metrics_thread():
                 'jitter': round(f.jitter, 2),
                 'qos': round(calculate_qos_score(f.latency, f.jitter, f.packet_loss), 1)
             } for f in traditional_flows]
+
+            if predictive_engine:
+                predictive_engine.update(metric['adaptive'], metric['traditional'])
             
             time.sleep(2)
         except Exception as e:
@@ -415,6 +734,34 @@ def get_system_stats():
             'bytes_recv': psutil.net_io_counters().bytes_recv
         }
     })
+
+
+@app.route('/api/predictions')
+def get_predictions():
+    """Get latest prediction payload"""
+    if not predictive_engine:
+        return jsonify({'actual': [], 'predicted': [], 'congestion_probability': 0.0, 'confidence': 0.0})
+    return jsonify(predictive_engine.get_latest_prediction())
+
+
+@app.route('/api/model-metrics')
+def get_model_metrics():
+    """Get model accuracy metrics"""
+    if not predictive_engine:
+        return jsonify({'rmse': 0.0, 'mae': 0.0, 'r2': 0.0, 'precision': 0.0, 'recall': 0.0, 'f1': 0.0})
+    return jsonify(predictive_engine.get_metrics())
+
+
+@app.route('/api/predictive-alerts')
+def get_predictive_alerts():
+    """Get predictive alerts"""
+    return jsonify(list(predictive_alerts))
+
+
+@app.route('/api/action-log')
+def get_action_log():
+    """Get action command log"""
+    return jsonify(list(action_log))
 
 if __name__ == '__main__':
     print("🚀 ULTIMATE ADAPTIVE ECMP DASHBOARD")

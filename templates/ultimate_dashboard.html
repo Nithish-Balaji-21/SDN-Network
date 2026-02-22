@@ -576,6 +576,53 @@
                 </div>
             </div>
 
+            <div class="grid wide">
+                <div class="card">
+                    <h2>predicted vs actual utilization</h2>
+                    <div class="chart-container">
+                        <canvas id="predictionChart"></canvas>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <h2>prediction quality</h2>
+                    <div class="metric-compare">
+                        <div class="metric-label">congestion probability</div>
+                        <div class="metric-adaptive" id="congestion-prob">0%</div>
+                        <div class="vs-text">threshold</div>
+                        <div class="metric-traditional" id="congestion-threshold">80%</div>
+                    </div>
+
+                    <div class="metric-compare">
+                        <div class="metric-label">prediction confidence</div>
+                        <div style="flex: 1;">
+                            <div style="height: 8px; background: #eee; border-radius: 6px; overflow: hidden;">
+                                <div id="confidence-bar" style="height: 8px; width: 0%; background: #1976d2;"></div>
+                            </div>
+                        </div>
+                        <div class="metric-adaptive" id="confidence-value">0%</div>
+                    </div>
+
+                    <h3>model accuracy metrics</h3>
+                    <div class="metric-row">
+                        <span>RMSE</span>
+                        <span class="metric-value" id="metric-rmse">0.00</span>
+                    </div>
+                    <div class="metric-row">
+                        <span>MAE</span>
+                        <span class="metric-value" id="metric-mae">0.00</span>
+                    </div>
+                    <div class="metric-row">
+                        <span>R2</span>
+                        <span class="metric-value" id="metric-r2">0.00</span>
+                    </div>
+                    <div class="metric-row">
+                        <span>F1 score</span>
+                        <span class="metric-value" id="metric-f1">0.00</span>
+                    </div>
+                </div>
+            </div>
+
             <div class="card">
                 <h2>📊 Performance Scorecard</h2>
                 
@@ -700,6 +747,18 @@
                     <div id="traditional-alerts" class="no-data">No alerts</div>
                 </div>
             </div>
+
+            <div class="grid wide">
+                <div class="card">
+                    <h2>predictive alerts</h2>
+                    <div id="predictive-alerts" class="no-data">No predictive alerts</div>
+                </div>
+
+                <div class="card">
+                    <h2>alert command log</h2>
+                    <div id="action-log" class="no-data">No commands executed</div>
+                </div>
+            </div>
         </div>
 
         <!-- TAB 5: ROI -->
@@ -799,7 +858,8 @@
     </div>
 
     <script>
-        let comparisonChart, historyChart;
+        let comparisonChart, historyChart, predictionChart;
+        let topologyRefreshTick = 0;
 
         // Tab switching
         function switchTab(index, evt) {
@@ -853,6 +913,11 @@
             }
         }
 
+        function isTopologyTabActive() {
+            const tab = document.getElementById('tab-1');
+            return !!(tab && tab.classList.contains('active'));
+        }
+
         // Fetch and update metrics
         async function updateMetrics() {
             try {
@@ -893,6 +958,9 @@
                 updateAlerts();
                 updateCharts();
                 updateScorecard();
+                updatePredictions();
+                updatePredictiveAlerts();
+                updateActionLog();
                 
             } catch(e) {
                 console.error('Metrics error:', e);
@@ -928,7 +996,6 @@
                 
                 const tradResp = await fetch('/api/flows/traditional');
                 const tradFlows = await tradResp.json();
-                const tradDiv = document.getElementById('traditional-flows');
                 
                 if (!tradFlows || tradFlows.length === 0) {
                     tradDiv.innerHTML = '<div class="no-data">No flows detected</div>';
@@ -948,7 +1015,6 @@
                 }
 
                 // Update path details
-                const pathDiv = document.getElementById('path-details');
                 if (adaptiveFlows.length > 0 || tradFlows.length > 0) {
                     pathDiv.innerHTML = `
                         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
@@ -1017,6 +1083,94 @@
                 }
             } catch(e) {
                 console.error('Alerts error:', e);
+            }
+        }
+
+        async function updatePredictions() {
+            try {
+                const response = await fetch('/api/predictions');
+                const data = await response.json();
+
+                if (!data || !data.actual || !data.predicted) return;
+
+                const congestionEl = document.getElementById('congestion-prob');
+                const confidenceBar = document.getElementById('confidence-bar');
+                const confidenceValue = document.getElementById('confidence-value');
+                if (congestionEl) congestionEl.textContent = `${(data.congestion_probability * 100).toFixed(0)}%`;
+                if (confidenceBar) confidenceBar.style.width = `${(data.confidence * 100).toFixed(0)}%`;
+                if (confidenceValue) confidenceValue.textContent = `${(data.confidence * 100).toFixed(0)}%`;
+
+                const metricResp = await fetch('/api/model-metrics');
+                const metrics = await metricResp.json();
+                const setMetric = (id, value) => {
+                    const el = document.getElementById(id);
+                    if (el) el.textContent = value;
+                };
+                setMetric('metric-rmse', (metrics.rmse || 0).toFixed(2));
+                setMetric('metric-mae', (metrics.mae || 0).toFixed(2));
+                setMetric('metric-r2', (metrics.r2 || 0).toFixed(2));
+                setMetric('metric-f1', (metrics.f1 || 0).toFixed(2));
+
+                if (!predictionChart) initPredictionChart();
+                if (!predictionChart) return;
+
+                const actualSeries = data.actual.map(p => p.utilization);
+                const predictedSeries = data.predicted.map(p => p.utilization);
+                const labels = data.actual.map(p => p.timestamp).concat(
+                    data.predicted.map(p => p.timestamp)
+                );
+
+                predictionChart.data.labels = labels;
+                predictionChart.data.datasets[0].data = actualSeries.concat(new Array(predictedSeries.length).fill(null));
+                predictionChart.data.datasets[1].data = new Array(actualSeries.length).fill(null).concat(predictedSeries);
+                predictionChart.update();
+            } catch (e) {
+                console.error('Prediction update error:', e);
+            }
+        }
+
+        async function updatePredictiveAlerts() {
+            try {
+                const container = document.getElementById('predictive-alerts');
+                if (!container) return;
+                const response = await fetch('/api/predictive-alerts');
+                const alerts = await response.json();
+                if (!alerts || alerts.length === 0) {
+                    container.innerHTML = '<div class="no-data">No predictive alerts</div>';
+                    return;
+                }
+                container.innerHTML = alerts.map(a => `
+                    <div style="background: ${a.severity === 'HIGH' ? '#ffebee' : '#fff3e0'}; padding: 12px; margin-bottom: 8px; border-radius: 6px; border-left: 4px solid ${a.severity === 'HIGH' ? '#f44336' : '#ff9800'};">
+                        <div style="font-weight: bold; font-size: 12px;">${a.type}</div>
+                        <div style="font-size: 11px; color: #666; margin-top: 4px;">${a.message}</div>
+                        <div style="font-size: 10px; color: #999; margin-top: 4px;">${new Date(a.timestamp).toLocaleTimeString()}</div>
+                        ${a.command ? `<div style="font-size: 10px; color: #444; margin-top: 4px;">${a.command}</div>` : ''}
+                    </div>
+                `).join('');
+            } catch (e) {
+                console.error('Predictive alerts error:', e);
+            }
+        }
+
+        async function updateActionLog() {
+            try {
+                const container = document.getElementById('action-log');
+                if (!container) return;
+                const response = await fetch('/api/action-log');
+                const actions = await response.json();
+                if (!actions || actions.length === 0) {
+                    container.innerHTML = '<div class="no-data">No commands executed</div>';
+                    return;
+                }
+                container.innerHTML = actions.map(a => `
+                    <div style="background: #f5f5f5; padding: 10px; margin-bottom: 8px; border-radius: 6px; border-left: 3px solid #1976d2;">
+                        <div style="font-weight: 600; font-size: 12px;">${a.action}</div>
+                        <div style="font-size: 11px; color: #555; margin-top: 4px;">${a.command}</div>
+                        <div style="font-size: 10px; color: #999; margin-top: 4px;">${new Date(a.timestamp).toLocaleTimeString()}</div>
+                    </div>
+                `).join('');
+            } catch (e) {
+                console.error('Action log error:', e);
             }
         }
 
@@ -1126,6 +1280,30 @@
             });
         }
 
+        function initPredictionChart() {
+            const predEl = document.getElementById('predictionChart');
+            if (!predEl) {
+                console.warn('Prediction chart canvas not ready yet');
+                return;
+            }
+            const predCtx = predEl.getContext('2d');
+            predictionChart = new Chart(predCtx, {
+                type: 'line',
+                data: {
+                    labels: [],
+                    datasets: [
+                        {label: 'actual utilization', data: [], borderColor: '#1976d2', fill: false, tension: 0.3},
+                        {label: 'predicted utilization', data: [], borderColor: '#f57c00', borderDash: [4, 3], fill: false, tension: 0.3}
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {y: {beginAtZero: true, max: 100}}
+                }
+            });
+        }
+
         async function updateSystemStats() {
             try {
                 const cpuEl = document.getElementById('cpu-usage');
@@ -1150,13 +1328,237 @@
 
         // Topology visualization
         let topologyNetwork = null;
+        let visRetryCount = 0;
+        const MAX_VIS_RETRIES = 3;
+        let packetAnimFrameId = null;
+
+        function stopPacketAnimation() {
+            if (packetAnimFrameId) {
+                cancelAnimationFrame(packetAnimFrameId);
+                packetAnimFrameId = null;
+            }
+        }
+
+        function getLinkStyle(utilization) {
+            const util = Number(utilization);
+            if (!Number.isFinite(util)) {
+                return {color: '#9e9e9e', width: 2};
+            }
+            if (util > 70) return {color: '#f44336', width: 4};
+            if (util > 40) return {color: '#ff9800', width: 3};
+            return {color: '#4caf50', width: 2};
+        }
+
+        function parseFlowPath(pathText) {
+            if (!pathText) return [];
+            return pathText.split(/→|->/).map(p => p.trim()).filter(Boolean);
+        }
+
+        function renderTopologyFallback(container, topoData, flowData, heatmapData) {
+            if (!container) return;
+
+            const nodes = (topoData && topoData.nodes) ? topoData.nodes : [];
+            const edges = (topoData && topoData.edges) ? topoData.edges : [];
+
+            if (nodes.length === 0) {
+                container.innerHTML = '<div style="padding: 20px; color: #999;">No topology data</div>';
+                return;
+            }
+
+            const width = container.clientWidth || 900;
+            const height = container.clientHeight || 500;
+            const padding = 40;
+
+            const xs = nodes.map(n => (typeof n.x === 'number' ? n.x : 0));
+            const ys = nodes.map(n => (typeof n.y === 'number' ? n.y : 0));
+            const minX = Math.min.apply(null, xs);
+            const maxX = Math.max.apply(null, xs);
+            const minY = Math.min.apply(null, ys);
+            const maxY = Math.max.apply(null, ys);
+
+            const spanX = Math.max(1, maxX - minX);
+            const spanY = Math.max(1, maxY - minY);
+            const scaleX = (width - padding * 2) / spanX;
+            const scaleY = (height - padding * 2) / spanY;
+
+            const nodePos = new Map();
+            nodes.forEach(n => {
+                const x = padding + ((typeof n.x === 'number' ? n.x : 0) - minX) * scaleX;
+                const y = padding + ((typeof n.y === 'number' ? n.y : 0) - minY) * scaleY;
+                nodePos.set(n.id, {x, y, label: n.label || n.id, type: n.type || 'switch'});
+            });
+
+            const svgNS = 'http://www.w3.org/2000/svg';
+            const svg = document.createElementNS(svgNS, 'svg');
+            svg.setAttribute('width', width);
+            svg.setAttribute('height', height);
+            svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
+            svg.style.width = '100%';
+            svg.style.height = '100%';
+            svg.style.display = 'block';
+
+            container.innerHTML = '';
+            container.appendChild(svg);
+
+            edges.forEach(e => {
+                const from = nodePos.get(e.source);
+                const to = nodePos.get(e.target);
+                if (!from || !to) return;
+
+                const linkKey = `${e.source}-${e.target}`;
+                const altKey = `${e.target}-${e.source}`;
+                const util = heatmapData && (heatmapData[linkKey] ?? heatmapData[altKey]);
+                const style = getLinkStyle(util);
+
+                const line = document.createElementNS(svgNS, 'line');
+                line.setAttribute('x1', from.x);
+                line.setAttribute('y1', from.y);
+                line.setAttribute('x2', to.x);
+                line.setAttribute('y2', to.y);
+                line.setAttribute('stroke', style.color);
+                line.setAttribute('stroke-width', String(style.width));
+                line.setAttribute('stroke-linecap', 'round');
+                svg.appendChild(line);
+            });
+
+            nodes.forEach(n => {
+                const pos = nodePos.get(n.id);
+                if (!pos) return;
+
+                const isHost = pos.type === 'host';
+                const fill = isHost ? '#e8f5e9' : '#e3f2fd';
+                const stroke = isHost ? '#2e7d32' : '#0d47a1';
+
+                const circle = document.createElementNS(svgNS, 'circle');
+                circle.setAttribute('cx', pos.x);
+                circle.setAttribute('cy', pos.y);
+                circle.setAttribute('r', isHost ? '14' : '18');
+                circle.setAttribute('fill', fill);
+                circle.setAttribute('stroke', stroke);
+                circle.setAttribute('stroke-width', '2');
+                svg.appendChild(circle);
+
+                const text = document.createElementNS(svgNS, 'text');
+                text.setAttribute('x', pos.x);
+                text.setAttribute('y', pos.y + 4);
+                text.setAttribute('text-anchor', 'middle');
+                text.setAttribute('font-size', '11');
+                text.setAttribute('font-family', 'Arial, sans-serif');
+                text.setAttribute('fill', '#333');
+                text.textContent = pos.label;
+                svg.appendChild(text);
+            });
+
+            const packetLayer = document.createElementNS(svgNS, 'g');
+            packetLayer.setAttribute('id', 'packets-layer');
+            svg.appendChild(packetLayer);
+
+            stopPacketAnimation();
+
+            const packets = [];
+            const flows = (flowData && flowData.length > 0) ? flowData : [];
+            const maxPackets = Math.min(24, flows.length * 3);
+
+            flows.slice(0, maxPackets).forEach((flow, index) => {
+                const pathIds = parseFlowPath(flow.path);
+                if (pathIds.length < 2) return;
+
+                const points = [];
+                for (let i = 0; i < pathIds.length; i += 1) {
+                    const pos = nodePos.get(pathIds[i]);
+                    if (!pos) return;
+                    points.push(pos);
+                }
+
+                const color = flow.controller === 'traditional' ? '#f57c00' : '#1976d2';
+                const circle = document.createElementNS(svgNS, 'circle');
+                circle.setAttribute('r', '4');
+                circle.setAttribute('fill', color);
+                circle.setAttribute('opacity', '0.9');
+                packetLayer.appendChild(circle);
+
+                packets.push({
+                    circle,
+                    points,
+                    segment: 0,
+                    t: (index * 0.12) % 1,
+                    speed: 0.003 + (index % 5) * 0.0006
+                });
+            });
+
+            const animate = () => {
+                packets.forEach(pkt => {
+                    const a = pkt.points[pkt.segment];
+                    const b = pkt.points[pkt.segment + 1];
+                    if (!a || !b) {
+                        pkt.segment = 0;
+                        pkt.t = 0;
+                        return;
+                    }
+
+                    pkt.t += pkt.speed;
+                    if (pkt.t >= 1) {
+                        pkt.t = 0;
+                        pkt.segment += 1;
+                        if (pkt.segment >= pkt.points.length - 1) {
+                            pkt.segment = 0;
+                        }
+                    }
+
+                    const x = a.x + (b.x - a.x) * pkt.t;
+                    const y = a.y + (b.y - a.y) * pkt.t;
+                    pkt.circle.setAttribute('cx', String(x));
+                    pkt.circle.setAttribute('cy', String(y));
+                });
+
+                packetAnimFrameId = requestAnimationFrame(animate);
+            };
+
+            if (packets.length > 0) {
+                packetAnimFrameId = requestAnimationFrame(animate);
+            }
+        }
+
+        async function renderFallbackWithData(container) {
+            try {
+                const [topoResp, adaptResp, tradResp, heatResp] = await Promise.all([
+                    fetch('/api/topology'),
+                    fetch('/api/flows/adaptive'),
+                    fetch('/api/flows/traditional'),
+                    fetch('/api/link-heatmap')
+                ]);
+
+                const topoData = await topoResp.json();
+                const adaptiveFlows = await adaptResp.json();
+                const traditionalFlows = await tradResp.json();
+                const heatmapData = await heatResp.json();
+
+                const flows = []
+                    .concat((adaptiveFlows || []).map(f => ({...f, controller: 'adaptive'})))
+                    .concat((traditionalFlows || []).map(f => ({...f, controller: 'traditional'})));
+
+                renderTopologyFallback(container, topoData, flows, heatmapData);
+            } catch (e) {
+                console.error('Fallback topology error:', e);
+                if (container) {
+                    container.innerHTML = '<div style="padding: 20px; color: #f44336;">Error loading topology: ' + e.message + '</div>';
+                }
+            }
+        }
 
         async function drawTopology() {
             try {
                 // Check if vis is available
                 if (typeof vis === 'undefined') {
-                    console.warn('Vis.js not loaded yet, retrying in 1s');
-                    setTimeout(drawTopology, 1000);
+                    visRetryCount += 1;
+                    if (visRetryCount <= MAX_VIS_RETRIES) {
+                        console.warn('Vis.js not loaded yet, retrying in 1s');
+                        setTimeout(drawTopology, 1000);
+                        return;
+                    }
+                    console.warn('Vis.js unavailable, using fallback renderer');
+                    const container = document.getElementById('topology');
+                    await renderFallbackWithData(container);
                     return;
                 }
                 
@@ -1275,7 +1677,15 @@
                 topologyNetwork = new vis.Network(container, data, options);
                 
                 // Fit the network to view once loaded
-                setTimeout(() => {
+                setTimeout(async () => {
+                    const canvas = container.querySelector('canvas');
+                    if (!canvas || canvas.width === 0 || canvas.height === 0) {
+                        console.warn('Vis.js render failed, using fallback renderer');
+                        if (topologyNetwork) topologyNetwork.destroy();
+                        topologyNetwork = null;
+                        await renderFallbackWithData(container);
+                        return;
+                    }
                     if (topologyNetwork) topologyNetwork.fit({animation: true});
                 }, 500);
                 
@@ -1352,12 +1762,16 @@
             setTimeout(() => {
                 try {
                     initCharts();
+                    initPredictionChart();
                     updateMetrics();
                     updateSystemStats();
                     updateFlows();
                     updateAlerts();
                     updateScorecard();
                     updateHeatmap();
+                    updatePredictions();
+                    updatePredictiveAlerts();
+                    updateActionLog();
                     drawTopology();
                     
                     // Start refresh interval (don't redraw topology constantly - it's expensive)
@@ -1369,6 +1783,13 @@
                             updateAlerts();
                             updateScorecard();
                             updateHeatmap();
+                            updatePredictions();
+                            updatePredictiveAlerts();
+                            updateActionLog();
+                            topologyRefreshTick += 1;
+                            if (topologyRefreshTick % 3 === 0 && isTopologyTabActive()) {
+                                drawTopology();
+                            }
                         } catch(e) {
                             console.error('Update cycle error:', e);
                         }
