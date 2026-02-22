@@ -148,15 +148,63 @@ Open Ubuntu terminal and paste these commands ONE AT A TIME.
 sudo apt-get update
 ```
 
-Type password + Enter. Wait for `done`.
+**If you see "Temporary failure resolving" - DNS issue!**
+
+Fix DNS and retry:
+```bash
+# Add Google DNS to system
+echo "nameserver 8.8.8.8" | sudo tee -a /etc/resolv.conf
+echo "nameserver 8.8.4.4" | sudo tee -a /etc/resolv.conf
+
+# Try update again
+sudo apt-get update
+```
+
+**If still failing**, try this minimal install (skip build-essential for now):
+```bash
+# Stop update with Ctrl+C if needed, then:
+sudo apt-get install -y python3 git wget curl
+```
+
+You can add build-essential later if needed.
+
+**For VirtualBox users with network issues:**
+```bash
+# Check if you have internet
+ping google.com
+
+# If no response, try restarting network:
+sudo systemctl restart networking
+```
 
 ### 6b: Install Basic Tools
 
 ```bash
-sudo apt-get install -y python3 python3-pip git curl wget build-essential
+sudo apt-get install -y python3 git curl wget build-essential
 ```
 
-Wait 3-5 minutes.
+**For Ubuntu 24.04 (newer)**, pip needs special permission. Use this:
+
+```bash
+python3 get-pip.py --break-system-packages
+rm get-pip.py
+```
+
+**If you still get "externally-managed-environment" error**, skip pip entirely and use system packages instead:
+
+```bash
+# Install all packages from apt (no pip needed!)
+sudo apt-get install -y python3-networkx python3-eventlet python3-dev
+```
+
+This is actually simpler and recommended for this project.
+
+**Verify packages installed:**
+```bash
+python3 -c "import networkx; print('networkx OK')"
+```
+
+Should show `networkx OK`. ✓
 
 ### 6c: Install Mininet
 
@@ -164,15 +212,78 @@ Wait 3-5 minutes.
 sudo apt-get install -y mininet openvswitch-switch
 ```
 
-Wait 2-3 minutes.
-
-### 6d: Install Python Libraries
-
+**Verify mininet installed:**
 ```bash
-pip3 install ryu networkx
+sudo mn --version
 ```
 
-Wait 5 minutes (lots of downloading).
+Should show `mininet version 2.x.x` ✓
+
+**If you get "command not found"**, try:
+```bash
+# Install again
+sudo apt-get install --reinstall mininet
+# Or try the alternative package
+sudo apt-get install -y mn
+```
+
+Wait 2-3 minutes.
+
+### 6d: Install Python Libraries (Ryu) - Clone from Repo
+
+**Clone from the official Ryu repo (most reliable):**
+
+```bash
+cd ~
+git clone https://github.com/faucetsdn/ryu.git
+cd ryu
+```
+
+**Python 3.12 has compatibility issues with Ryu's setup.py. Use this workaround:**
+
+```bash
+# Install distutils package for Python 3.12
+pip3 install setuptools-distutils --break-system-packages
+
+# Install other dependencies
+pip3 install eventlet netaddr --break-system-packages
+```
+
+**Edit setup.py to skip the problematic hook:**
+
+```bash
+# Comment out the hook that causes the error
+sed -i '21s/^/# /' setup.py  # Comments out line 21
+
+# Now try installing
+python3 setup.py install --user
+```
+
+**If that fails**, use pip directly without building:
+
+```bash
+# Go back to ryu directory
+cd ~/ryu
+
+# Install just the dependencies and current code
+pip3 install -e . --no-build-isolation --break-system-packages
+```
+
+**If both fail**, download pre-built wheel instead:
+
+```bash
+# Skip source build entirely
+pip3 install ryu==4.34 --no-cache-dir --break-system-packages
+```
+
+**Verify Ryu installed:**
+```bash
+ryu-manager --help
+# OR
+python3 -c "import ryu; print(ryu.__version__)"
+```
+
+Should show help text or version. ✓
 
 ### 6e: Start OpenVSwitch Service
 
@@ -264,12 +375,15 @@ Now that basic setup works, do this:
 
 | Error | Solution |
 |-------|----------|
+| `externally-managed-environment` | Ubuntu 24.04: Add `--break-system-packages` to pip command, or use virtual environment: `python3 -m venv ~/ryu_env` |
+| `0% [Connecting...]` or packages show "Ign:" | **Network stalled**: Press Ctrl+C. In PowerShell: `wsl --shutdown`. Reopen Ubuntu and retry |
 | `command not found: python3` | Run: `sudo apt-get install -y python3` |
 | `sudo: command not found` | You're already root, remove `sudo` |
 | `mininet: command not found` | Run: `sudo apt-get install -y mininet` |
 | `Permission denied` | Add `sudo` at front of command |
-| `ModuleNotFoundError: ryu` | Run: `pip3 install ryu` |
-| Can't connect WSL to internet | Restart WSL: `wsl --shutdown` then reopen |
+| `ModuleNotFoundError: ryu` | Run: `cd ~/ryu` then `pip3 install -e . --break-system-packages` |
+| Can't connect WSL to internet | Run: `wsl --shutdown` in PowerShell, then reopen Ubuntu |
+| `Package pip3 not available` | Use system packages: `sudo apt-get install -y python3-networkx python3-eventlet` |
 | VirtualBox slow | Increase RAM in Settings |
 
 ---

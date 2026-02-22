@@ -256,7 +256,7 @@ The project is already cloned. Navigate to it:
 
 **For WSL2**:
 ```bash
-cd /mnt/d/Melinia/adaptive_ecmp
+   cd /mnt/d/Melinia/adaptive_ecmp
 ```
 
 **For VirtualBox**:

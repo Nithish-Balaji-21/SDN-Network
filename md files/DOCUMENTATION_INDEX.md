@@ -8,7 +8,7 @@ I've created **15 comprehensive documentation files** to guide you from zero to 
 
 ## 📚 Documentation Files Created
 
-### Windows Setup Guides (NEW - Read These First if on Windows!)
+### Windows Setup Guides (Read These First if on Windows!)
 
 | File | Purpose | Read When | Time |
 |------|---------|-----------|------|
@@ -17,6 +17,14 @@ I've created **15 comprehensive documentation files** to guide you from zero to 
 | **WINDOWS_SETUP_SIMPLE.md** | Step-by-step copy-paste guide | 2️⃣ SECOND | 2 hours |
 | **WINDOWS_SETUP_DECISION_FLOWCHART.md** | WSL2 vs VirtualBox decision | Unsure | 5 min |
 | **WINDOWS_SETUP_COMPLETE_GUIDE.md** | Detailed with troubleshooting | Setup fails | 15 min |
+
+### Linux/Kali Setup Guides (NEW - Read These First if on Linux/Kali!)
+
+| File | Purpose | Read When | Time |
+|------|---------|-----------|------|
+| **LINUX_QUICK_START.md** | 5-minute quick start for Linux | 🔴 FIRST | 5 min |
+| **LINUX_KALI_SETUP.md** | Complete Linux/Kali setup guide | Need details | 30 min |
+| **setup_linux.sh** | Automatic setup script | Run this! | 2 min |
 
 ### Project Understanding (Read After Setup)
 
@@ -56,15 +64,19 @@ I've created **15 comprehensive documentation files** to guide you from zero to 
    ✓ Done! Running Adaptive ECMP
 ```
 
-### Path B: "I'm on Linux/Mac and Need to Set It Up"
+### Path B: "I'm on Linux/Kali and Need to Set It Up"
 
 ```
-1. WINDOWS_SETUP_COMPLETE_GUIDE.md Part D (15 min)
-   ↓ Skip to Linux-specific instructions
-2. WINDOWS_SETUP_COMPLETE_GUIDE.md Part B+C (20 min)
-   ↓ Install tools
-3. SETUP_AND_EXECUTION.md
-   ✓ Done!
+1. LINUX_QUICK_START.md (5 min)
+   ↓ Super fast overview
+2. Run setup_linux.sh (automatic installer)
+   ↓ Installs everything automatically
+3. Or read LINUX_KALI_SETUP.md for manual steps (30 min)
+   ↓ Manual installation if needed
+4. SETUP_AND_EXECUTION.md Part 3 (30 min)
+   ↓ How to run tests
+5. Test scenarios + QUICK_REFERENCE.md
+   ✓ Done! Running Adaptive ECMP
 ```
 
 ### Path C: "Setup is Done, I Want to Understand the Project"

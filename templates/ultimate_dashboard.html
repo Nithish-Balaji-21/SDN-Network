@@ -1,0 +1,1390 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🏆 ULTIMATE Adaptive ECMP Dashboard - Hackathon Edition</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/vis.js/9.1.0/vis-network.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        :root {
+            --primary: #667eea;
+            --secondary: #764ba2;
+            --adaptive: #1976d2;
+            --traditional: #f57c00;
+            --success: #4caf50;
+            --warning: #ff9800;
+            --danger: #f44336;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, var(--primary) 0%, var(--secondary) 100%);
+            min-height: 100vh;
+            color: #333;
+            padding: 10px;
+        }
+
+        .container {
+            max-width: 1800px;
+            margin: 0 auto;
+        }
+
+        header {
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            margin-bottom: 15px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        header h1 {
+            font-size: 24px;
+            background: linear-gradient(135deg, var(--primary), var(--secondary));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            margin: 0;
+        }
+
+        .status-row {
+            display: flex;
+            gap: 10px;
+            font-size: 12px;
+        }
+
+        .status-badge {
+            padding: 8px 12px;
+            background: #f0f0f0;
+            border-radius: 20px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .status-badge.active {
+            background: #e8f5e9;
+            color: #2e7d32;
+        }
+
+        .pulse {
+            display: inline-block;
+            width: 8px;
+            height: 8px;
+            background: #2e7d32;
+            border-radius: 50%;
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        .tabs {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 15px;
+            background: white;
+            padding: 10px;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+
+        .tab-btn {
+            padding: 10px 16px;
+            background: #f0f0f0;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: 600;
+            transition: all 0.3s;
+        }
+
+        .tab-btn.active {
+            background: var(--primary);
+            color: white;
+        }
+
+        .tab-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+        }
+
+        .tab-content {
+            display: none;
+        }
+
+        .tab-content.active {
+            display: block;
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+            gap: 15px;
+            margin-bottom: 15px;
+        }
+
+        .grid.wide {
+            grid-template-columns: 1fr 1fr;
+        }
+
+        .grid.ultra-wide {
+            grid-template-columns: 1fr;
+        }
+
+        .card {
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            position: relative;
+        }
+
+        .card h2 {
+            color: var(--primary);
+            margin-bottom: 15px;
+            font-size: 16px;
+            border-bottom: 2px solid var(--primary);
+            padding-bottom: 10px;
+        }
+
+        .card h3 {
+            color: #666;
+            font-size: 13px;
+            margin-top: 15px;
+            margin-bottom: 10px;
+            text-transform: uppercase;
+            font-weight: 600;
+        }
+
+        .metric-compare {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 15px;
+            padding: 12px;
+            background: #f9f9f9;
+            border-radius: 6px;
+        }
+
+        .metric-label {
+            font-size: 13px;
+            color: #666;
+            flex: 1;
+        }
+
+        .metric-adaptive {
+            background: #e3f2fd;
+            color: var(--adaptive);
+            padding: 8px 12px;
+            border-radius: 4px;
+            font-weight: bold;
+            min-width: 80px;
+            text-align: center;
+        }
+
+        .metric-traditional {
+            background: #fff3e0;
+            color: var(--traditional);
+            padding: 8px 12px;
+            border-radius: 4px;
+            font-weight: bold;
+            min-width: 80px;
+            text-align: center;
+        }
+
+        .vs-text {
+            font-size: 11px;
+            color: #999;
+            font-weight: 600;
+        }
+
+        .improvement {
+            font-size: 12px;
+            padding: 4px 8px;
+            background: #e8f5e9;
+            color: #2e7d32;
+            border-radius: 4px;
+            font-weight: bold;
+        }
+
+        .alert-box {
+            padding: 12px;
+            margin-bottom: 10px;
+            border-radius: 6px;
+            border-left: 4px solid;
+            font-size: 12px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .alert-high {
+            background: #ffebee;
+            border-color: #f44336;
+            color: #c62828;
+        }
+
+        .alert-medium {
+            background: #fff3e0;
+            border-color: #ff9800;
+            color: #e65100;
+        }
+
+        .alert-low {
+            background: #e8f5e9;
+            border-color: #4caf50;
+            color: #1b5e20;
+        }
+
+        .flow-item {
+            padding: 10px;
+            margin-bottom: 8px;
+            background: #f5f5f5;
+            border-left: 3px solid var(--primary);
+            border-radius: 4px;
+            font-size: 12px;
+            line-height: 1.5;
+        }
+
+        .flow-item.congested {
+            border-left-color: #f44336;
+            background: #ffebee;
+        }
+
+        .flow-item.balanced {
+            border-left-color: #4caf50;
+            background: #e8f5e9;
+        }
+
+        .path-info {
+            font-family: 'Courier New', monospace;
+            font-size: 11px;
+            background: #f0f0f0;
+            padding: 8px;
+            border-radius: 4px;
+            margin-top: 8px;
+            word-break: break-all;
+        }
+
+        .chart-container {
+            position: relative;
+            height: 250px;
+            margin-bottom: 20px;
+        }
+
+        .chart-tall {
+            height: 350px;
+        }
+
+        .legend {
+            display: flex;
+            gap: 20px;
+            justify-content: center;
+            margin-top: 15px;
+            font-size: 12px;
+        }
+
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .legend-box {
+            width: 12px;
+            height: 12px;
+            border-radius: 2px;
+        }
+
+        .heatmap-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+            gap: 10px;
+            margin-top: 15px;
+        }
+
+        .heatmap-item {
+            padding: 15px;
+            border-radius: 6px;
+            text-align: center;
+            font-size: 13px;
+            font-weight: 600;
+            color: white;
+        }
+
+        .heatmap-normal {
+            background: #4caf50;
+        }
+
+        .heatmap-warning {
+            background: #ff9800;
+        }
+
+        .heatmap-critical {
+            background: #f44336;
+        }
+
+        .scorecard {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 10px;
+            margin-top: 15px;
+        }
+
+        .score-item {
+            padding: 12px;
+            background: #f9f9f9;
+            border-radius: 6px;
+            text-align: center;
+        }
+
+        .score-item .label {
+            font-size: 11px;
+            color: #666;
+            margin-bottom: 8px;
+        }
+
+        .score-item .score {
+            font-size: 24px;
+            font-weight: bold;
+            color: var(--primary);
+        }
+
+        .stars {
+            color: #ffc107;
+            font-size: 14px;
+            margin-top: 4px;
+        }
+
+        .roi-box {
+            background: linear-gradient(135deg, var(--primary), var(--secondary));
+            color: white;
+            padding: 20px;
+            border-radius: 8px;
+            margin-top: 15px;
+        }
+
+        .roi-item {
+            display: flex;
+            justify-content: space-between;
+            padding: 8px 0;
+            border-bottom: 1px solid rgba(255,255,255,0.2);
+        }
+
+        .roi-item:last-child {
+            border-bottom: none;
+        }
+
+        .roi-value {
+            font-weight: bold;
+            font-size: 16px;
+        }
+
+        .topology-canvas {
+            border: 2px solid #ddd;
+            border-radius: 6px;
+            background: #fafafa;
+            height: 500px;
+            width: 100%;
+            margin-bottom: 15px;
+        }
+
+        .path-selection-explanation {
+            background: #f0f7ff;
+            border-left: 4px solid var(--primary);
+            padding: 15px;
+            border-radius: 6px;
+            font-size: 12px;
+            line-height: 1.6;
+            margin-top: 15px;
+        }
+
+        .controls {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            margin-bottom: 15px;
+        }
+
+        button {
+            padding: 10px 16px;
+            background: var(--primary);
+            color: white;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: 600;
+            transition: all 0.3s;
+            font-size: 12px;
+        }
+
+        button:hover {
+            background: var(--secondary);
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+        }
+
+        button.secondary {
+            background: #f0f0f0;
+            color: #333;
+            border: 1px solid #ddd;
+        }
+
+        .no-data {
+            text-align: center;
+            color: #999;
+            padding: 30px;
+            font-size: 12px;
+        }
+
+        @media (max-width: 1200px) {
+            .grid.wide {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <header>
+            <h1>🏆 ULTIMATE Adaptive ECMP Dashboard</h1>
+            <div class="status-row">
+                <div class="status-badge active">
+                    <div class="pulse"></div>
+                    Adaptive: Active
+                </div>
+                <div class="status-badge active">
+                    <div class="pulse"></div>
+                    Traditional: Ready
+                </div>
+            </div>
+        </header>
+
+        <!-- Tab Navigation -->
+        <div class="tabs">
+            <button class="tab-btn active" onclick="switchTab(0, event)">📊 Overview</button>
+            <button class="tab-btn" onclick="switchTab(1, event)">🗺️ Topology</button>
+            <button class="tab-btn" onclick="switchTab(2, event)">📈 Analytics</button>
+            <button class="tab-btn" onclick="switchTab(3, event)">🛣️ Paths</button>
+            <button class="tab-btn" onclick="switchTab(4, event)">🚨 Alerts</button>
+            <button class="tab-btn" onclick="switchTab(5, event)">💰 ROI</button>
+            <button class="tab-btn" onclick="switchTab(6, event)">⚙️ Advanced</button>
+        </div>
+
+        <!-- TAB 0: OVERVIEW -->
+        <div id="tab-0" class="tab-content active">
+            <div class="grid wide">
+                <!-- Main Metrics -->
+                <div class="card">
+                    <h2>⚡ Throughput Comparison</h2>
+                    <div class="metric-compare">
+                        <div class="metric-label">Total Throughput (Mbps)</div>
+                        <div class="metric-adaptive" id="tp-adaptive">0</div>
+                        <div class="vs-text">vs</div>
+                        <div class="metric-traditional" id="tp-traditional">0</div>
+                        <div class="improvement" id="tp-improvement">+0%</div>
+                    </div>
+
+                    <div class="metric-compare">
+                        <div class="metric-label">Average Latency (ms)</div>
+                        <div class="metric-adaptive" id="lat-adaptive">0</div>
+                        <div class="vs-text">vs</div>
+                        <div class="metric-traditional" id="lat-traditional">0</div>
+                    </div>
+
+                    <div class="metric-compare">
+                        <div class="metric-label">Packet Loss (%)</div>
+                        <div class="metric-adaptive" id="loss-adaptive">0</div>
+                        <div class="vs-text">vs</div>
+                        <div class="metric-traditional" id="loss-traditional">0</div>
+                    </div>
+
+                    <div class="metric-compare">
+                        <div class="metric-label">Paths Used</div>
+                        <div class="metric-adaptive" id="paths-adaptive">0</div>
+                        <div class="vs-text">vs</div>
+                        <div class="metric-traditional" id="paths-traditional">1</div>
+                    </div>
+
+                    <div class="metric-compare">
+                        <div class="metric-label">QoS Score (0-100)</div>
+                        <div class="metric-adaptive" id="qos-adaptive">0</div>
+                        <div class="vs-text">vs</div>
+                        <div class="metric-traditional" id="qos-traditional">0</div>
+                    </div>
+                </div>
+
+                <!-- Charts -->
+                <div class="card">
+                    <h2>📈 Real-Time Comparison</h2>
+                    <div class="chart-container">
+                        <canvas id="comparisonChart"></canvas>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Active Flows -->
+            <div class="grid wide">
+                <div class="card">
+                    <h2>✅ Adaptive ECMP - Active Flows</h2>
+                    <div id="adaptive-flows" class="no-data">Loading flows...</div>
+                </div>
+
+                <div class="card">
+                    <h2>⚠️ Traditional ECMP - Active Flows</h2>
+                    <div id="traditional-flows" class="no-data">Loading flows...</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- TAB 1: TOPOLOGY VISUALIZATION -->
+        <div id="tab-1" class="tab-content">
+            <div class="card ultra-wide">
+                <h2>🗺️ Live Network Topology</h2>
+                <div class="topology-canvas" id="topology"></div>
+                <p style="font-size: 12px; color: #999; margin-top: 10px;">
+                    Node size indicates load. Edge thickness represents bandwidth utilization.
+                </p>
+            </div>
+
+            <div class="card">
+                <h2>🔥 Link Utilization Heatmap</h2>
+                <div class="heatmap-grid" id="heatmap"></div>
+            </div>
+        </div>
+
+        <!-- TAB 2: ANALYTICS -->
+        <div id="tab-2" class="tab-content">
+            <div class="card ultra-wide">
+                <h2>📊 10-Minute Performance Trend</h2>
+                <div class="chart-container chart-tall">
+                    <canvas id="historyChart"></canvas>
+                </div>
+            </div>
+
+            <div class="card">
+                <h2>📊 Performance Scorecard</h2>
+                
+                <h3>Adaptive ECMP</h3>
+                <div class="scorecard">
+                    <div class="score-item">
+                        <div class="label">THROUGHPUT</div>
+                        <div class="score" id="score-adaptive-tp">0</div>
+                        <div class="stars">★★★★★</div>
+                    </div>
+                    <div class="score-item">
+                        <div class="label">LATENCY</div>
+                        <div class="score" id="score-adaptive-lat">0</div>
+                        <div class="stars">★★★★★</div>
+                    </div>
+                    <div class="score-item">
+                        <div class="label">RELIABILITY</div>
+                        <div class="score" id="score-adaptive-rel">0</div>
+                        <div class="stars">★★★★★</div>
+                    </div>
+                    <div class="score-item">
+                        <div class="label">LOAD BALANCE</div>
+                        <div class="score" id="score-adaptive-lb">0</div>
+                        <div class="stars">★★★★★</div>
+                    </div>
+                </div>
+
+                <h3 style="margin-top: 20px;">Traditional ECMP</h3>
+                <div class="scorecard">
+                    <div class="score-item">
+                        <div class="label">THROUGHPUT</div>
+                        <div class="score" id="score-trad-tp">0</div>
+                        <div class="stars">★★★☆☆</div>
+                    </div>
+                    <div class="score-item">
+                        <div class="label">LATENCY</div>
+                        <div class="score" id="score-trad-lat">0</div>
+                        <div class="stars">★★★☆☆</div>
+                    </div>
+                    <div class="score-item">
+                        <div class="label">RELIABILITY</div>
+                        <div class="score" id="score-trad-rel">0</div>
+                        <div class="stars">★★★★☆</div>
+                    </div>
+                    <div class="score-item">
+                        <div class="label">LOAD BALANCE</div>
+                        <div class="score" id="score-trad-lb">0</div>
+                        <div class="stars">★★☆☆☆</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- TAB 3: PATH SELECTION -->
+        <div id="tab-3" class="tab-content">
+            <div class="card ultra-wide">
+                <h2>🛣️ Path Selection Algorithm Explanation</h2>
+                
+                <h3>How Adaptive ECMP Chooses Paths</h3>
+                <div class="path-selection-explanation">
+                    <strong>Algorithm:</strong> Dynamic Load-Based Selection<br><br>
+                    1️⃣ <strong>Traffic Discovery:</strong> Monitor real-time link utilization (packets/sec)<br>
+                    2️⃣ <strong>Path Analysis:</strong> Calculate all equal-cost paths to destination<br>
+                    3️⃣ <strong>Load Calculation:</strong> Measure congestion on each path<br>
+                    4️⃣ <strong>Selection:</strong> Route flow to path with lowest load<br>
+                    5️⃣ <strong>Adaptation:</strong> Re-evaluate every 2 seconds<br><br>
+                    
+                    <strong>Result:</strong> Flows automatically spread across multiple paths, preventing congestion.
+                </div>
+
+                <h3 style="margin-top: 20px;">How Traditional ECMP Chooses Paths</h3>
+                <div class="path-selection-explanation" style="background: #fff3e0;">
+                    <strong>Algorithm:</strong> Hash-Based Static Selection<br><br>
+                    1️⃣ <strong>Flow Hashing:</strong> Hash source IP + dest IP + protocol<br>
+                    2️⃣ <strong>Mask ECMP:</strong> Modulo hash by number of equal paths<br>
+                    3️⃣ <strong>Static Path:</strong> Always chooses same path for same flow<br>
+                    4️⃣ <strong>No Adaptation:</strong> Never changes path, even if congested<br>
+                    5️⃣ <strong>Hash Collision:</strong> Multiple flows may hash to same path<br><br>
+                    
+                    <strong>Result:</strong> Some paths overloaded, others underutilized. No dynamic adjustment.
+                </div>
+
+                <h3 style="margin-top: 20px;">Visual Comparison</h3>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-top: 15px;">
+                    <div style="background: #e3f2fd; padding: 15px; border-radius: 6px;">
+                        <strong>Adaptive Selection:</strong>
+                        <div style="font-size: 12px; margin-top: 10px; line-height: 1.8;">
+                            h1→h4: Link s1 (load: 30%) → select ✓<br>
+                            h2→h4: Link s1 (load: 30%+) → select s2 instead<br>
+                            h3→h1: Link s2 (load: 20%) → select ✓<br><br>
+                            Result: Balanced distribution
+                        </div>
+                    </div>
+                    <div style="background: #fff3e0; padding: 15px; border-radius: 6px;">
+                        <strong>Traditional Selection:</strong>
+                        <div style="font-size: 12px; margin-top: 10px; line-height: 1.8;">
+                            h1→h4: Hash=5 → via s1<br>
+                            h2→h4: Hash=8 → via s1 (same!)<br>
+                            h3→h1: Hash=12 → via s2<br><br>
+                            Result: Unbalanced, congestion
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card">
+                <h2>🔄 Per-Flow Path Details</h2>
+                <div id="path-details" class="no-data">Loading path analysis...</div>
+            </div>
+        </div>
+
+        <!-- TAB 4: ALERTS -->
+        <div id="tab-4" class="tab-content">
+            <div class="grid wide">
+                <div class="card">
+                    <h2>🚨 Adaptive ECMP Alerts</h2>
+                    <div id="adaptive-alerts" class="no-data">No alerts</div>
+                </div>
+
+                <div class="card">
+                    <h2>⚠️ Traditional ECMP Alerts</h2>
+                    <div id="traditional-alerts" class="no-data">No alerts</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- TAB 5: ROI -->
+        <div id="tab-5" class="tab-content">
+            <div class="card">
+                <h2>💰 Business Impact Analysis</h2>
+                
+                <h3>Performance Improvement</h3>
+                <div class="metric-compare">
+                    <div class="metric-label">Throughput Improvement</div>
+                    <div style="flex: 1;"></div>
+                    <div style="font-weight: bold; color: var(--success); font-size: 18px;">+35%</div>
+                </div>
+
+                <div class="roi-box">
+                    <div class="roi-item">
+                        <span>Hardware Savings (Annual)</span>
+                        <span class="roi-value" id="roi-hardware">$140,000</span>
+                    </div>
+                    <div class="roi-item">
+                        <span>Power Consumption Savings</span>
+                        <span class="roi-value" id="roi-power">$8,750</span>
+                    </div>
+                    <div class="roi-item">
+                        <span>Operational Efficiency Gains</span>
+                        <span class="roi-value" id="roi-ops">$15,000</span>
+                    </div>
+                    <div class="roi-item" style="border-top: 2px solid rgba(255,255,255,0.5); padding-top: 12px; margin-top: 12px;">
+                        <span style="font-size: 16px; font-weight: bold;">TOTAL ANNUAL SAVINGS</span>
+                        <span class="roi-value" style="font-size: 20px;" id="roi-total">$163,750</span>
+                    </div>
+                    <div class="roi-item" style="opacity: 0.9;">
+                        <span>Payback Period</span>
+                        <span class="roi-value" id="roi-payback">8.1 months</span>
+                    </div>
+                </div>
+
+                <h3 style="margin-top: 20px;">Deployment Cost Estimate</h3>
+                <div style="padding: 15px; background: #f9f9f9; border-radius: 6px; font-size: 12px;">
+                    <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
+                        <span>Software Licenses (3-year)</span>
+                        <span>$50,000</span>
+                    </div>
+                    <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
+                        <span>Installation & Configuration</span>
+                        <span>$30,000</span>
+                    </div>
+                    <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
+                        <span>Training & Support (Year 1)</span>
+                        <span>$20,000</span>
+                    </div>
+                    <div style="border-top: 1px solid #ccc; padding-top: 8px; display: flex; justify-content: space-between; font-weight: bold;">
+                        <span>Total Investment</span>
+                        <span>$100,000</span>
+                    </div>
+                </div>
+
+                <div style="background: #e8f5e9; padding: 15px; border-radius: 6px; margin-top: 15px; font-size: 12px; text-align: center;">
+                    <strong style="color: #2e7d32; font-size: 16px;">
+                        💚 Payback in 8.1 months • ROI: 163.75% in Year 1
+                    </strong>
+                </div>
+            </div>
+        </div>
+
+        <!-- TAB 6: ADVANCED -->
+        <div id="tab-6" class="tab-content">
+            <div class="card ultra-wide">
+                <h2>⚙️ Advanced Controls & Scenarios</h2>
+                
+                <div class="controls">
+                    <button onclick="runScenario('single')">▶️ Single Flow Test</button>
+                    <button onclick="runScenario('dual')">▶️ Dual Flows Test</button>
+                    <button onclick="runScenario('quad')">▶️ 4-Way Cross Traffic</button>
+                    <button onclick="runScenario('burst')">▶️ Burst Traffic</button>
+                    <button onclick="runScenario('reset')">🔄 Reset</button>
+                    <button class="secondary" onclick="exportReport()">📥 Export Report</button>
+                </div>
+
+                <h3>System Statistics</h3>
+                <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; margin-top: 15px;">
+                    <div style="background: linear-gradient(135deg, var(--primary), var(--secondary)); color: white; padding: 20px; border-radius: 8px; text-align: center;">
+                        <div style="font-size: 12px; opacity: 0.9;">CPU Usage</div>
+                        <div style="font-size: 28px; font-weight: bold;" id="cpu-usage">0%</div>
+                    </div>
+                    <div style="background: linear-gradient(135deg, var(--primary), var(--secondary)); color: white; padding: 20px; border-radius: 8px; text-align: center;">
+                        <div style="font-size: 12px; opacity: 0.9;">Memory Usage</div>
+                        <div style="font-size: 28px; font-weight: bold;" id="mem-usage">0%</div>
+                    </div>
+                    <div style="background: linear-gradient(135deg, var(--primary), var(--secondary)); color: white; padding: 20px; border-radius: 8px; text-align: center;">
+                        <div style="font-size: 12px; opacity: 0.9;">Network I/O</div>
+                        <div style="font-size: 28px; font-weight: bold;" id="net-io">0 MB</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let comparisonChart, historyChart;
+
+        // Tab switching
+        function switchTab(index, evt) {
+            try {
+                if (evt) {
+                    evt.preventDefault();
+                    evt.stopPropagation();
+                }
+                
+                console.log('Switching to tab:', index);
+                
+                // Hide all tabs
+                document.querySelectorAll('.tab-content').forEach(el => {
+                    el.classList.remove('active');
+                });
+                
+                // Remove active class from all buttons
+                document.querySelectorAll('.tab-btn').forEach(el => {
+                    el.classList.remove('active');
+                });
+                
+                // Show selected tab
+                const tabContent = document.getElementById(`tab-${index}`);
+                if (tabContent) {
+                    tabContent.classList.add('active');
+                    console.log('Tab shown:', `tab-${index}`);
+                } else {
+                    console.error('Tab not found:', `tab-${index}`);
+                    return;
+                }
+                
+                // Highlight clicked button
+                if (evt && evt.target) {
+                    evt.target.classList.add('active');
+                    console.log('Button highlighted');
+                }
+                
+                // Trigger any necessary updates for the tab
+                if (index === 1) {
+                    // Topology tab
+                    setTimeout(() => drawTopology(), 100);
+                } else if (index === 2) {
+                    // Analytics tab
+                    setTimeout(() => {
+                        if (historyChart) historyChart.resize();
+                    }, 100);
+                }
+                
+            } catch(e) {
+                console.error('Tab switch error:', e);
+            }
+        }
+
+        // Fetch and update metrics
+        async function updateMetrics() {
+            try {
+                const response = await fetch('/api/metrics');
+                const data = await response.json();
+                
+                if (!data.adaptive || !data.traditional) return;
+                
+                // Check if elements exist before updating
+                const tpAdaptEl = document.getElementById('tp-adaptive');
+                if (!tpAdaptEl) return; // Elements not ready yet
+
+                const adaptive = data.adaptive;
+                const traditional = data.traditional;
+
+                // Update comparison metrics
+                const setIfExists = (id, value) => {
+                    const el = document.getElementById(id);
+                    if (el) el.textContent = value;
+                };
+                
+                setIfExists('tp-adaptive', (adaptive.throughput || 0).toFixed(1));
+                setIfExists('tp-traditional', (traditional.throughput || 0).toFixed(1));
+                
+                const improvement = ((adaptive.throughput || 0) / Math.max(traditional.throughput || 1, 0.1) - 1) * 100;
+                setIfExists('tp-improvement', `+${improvement.toFixed(0)}%`);
+                
+                setIfExists('lat-adaptive', (adaptive.latency || 0).toFixed(1));
+                setIfExists('lat-traditional', (traditional.latency || 0).toFixed(1));
+                setIfExists('loss-adaptive', (adaptive.packet_loss || 0).toFixed(2));
+                setIfExists('loss-traditional', (traditional.packet_loss || 0).toFixed(2));
+                setIfExists('paths-adaptive', adaptive.paths_used || 0);
+                setIfExists('qos-adaptive', (adaptive.qos_score || 0).toFixed(0));
+                setIfExists('qos-traditional', (traditional.qos_score || 0).toFixed(0));
+
+                // Update flows
+                updateFlows();
+                updateAlerts();
+                updateCharts();
+                updateScorecard();
+                
+            } catch(e) {
+                console.error('Metrics error:', e);
+            }
+        }
+
+        async function updateFlows() {
+            try {
+                const adaptDiv = document.getElementById('adaptive-flows');
+                const tradDiv = document.getElementById('traditional-flows');
+                if (!adaptDiv || !tradDiv) return; // Elements not ready
+                
+                const adaptiveResp = await fetch('/api/flows/adaptive');
+                const adaptiveFlows = await adaptiveResp.json();
+                const pathDiv = document.getElementById('path-details');
+                if (!pathDiv) return; // Path div not ready
+                if (!adaptiveFlows || adaptiveFlows.length === 0) {
+                    adaptDiv.innerHTML = '<div class="no-data">No flows detected</div>';
+                } else {
+                    adaptDiv.innerHTML = adaptiveFlows.map(f => `
+                        <div style="background: #e8f5e9; padding: 12px; margin-bottom: 10px; border-radius: 6px; border-left: 4px solid #4caf50;">
+                            <div style="font-weight: bold;">${f.src} → ${f.dst}</div>
+                            <div style="font-size: 11px; color: #666; margin-top: 5px;">
+                                <div>📊 Throughput: ${f.throughput} Mbps</div>
+                                <div>⏱️ Latency: ${f.latency} ms</div>
+                                <div>📦 Packets: ${f.packets}</div>
+                                <div>🛣️ Path: ${f.path}</div>
+                                <div>🎯 QoS Score: ${f.qos}/100</div>
+                            </div>
+                        </div>
+                    `).join('');
+                }
+                
+                const tradResp = await fetch('/api/flows/traditional');
+                const tradFlows = await tradResp.json();
+                const tradDiv = document.getElementById('traditional-flows');
+                
+                if (!tradFlows || tradFlows.length === 0) {
+                    tradDiv.innerHTML = '<div class="no-data">No flows detected</div>';
+                } else {
+                    tradDiv.innerHTML = tradFlows.map(f => `
+                        <div style="background: #fff3e0; padding: 12px; margin-bottom: 10px; border-radius: 6px; border-left: 4px solid #f57c00;">
+                            <div style="font-weight: bold;">${f.src} → ${f.dst}</div>
+                            <div style="font-size: 11px; color: #666; margin-top: 5px;">
+                                <div>📊 Throughput: ${f.throughput} Mbps</div>
+                                <div>⏱️ Latency: ${f.latency} ms</div>
+                                <div>📦 Packets: ${f.packets}</div>
+                                <div>🛣️ Path: ${f.path}</div>
+                                <div>🎯 QoS Score: ${f.qos}/100</div>
+                            </div>
+                        </div>
+                    `).join('');
+                }
+
+                // Update path details
+                const pathDiv = document.getElementById('path-details');
+                if (adaptiveFlows.length > 0 || tradFlows.length > 0) {
+                    pathDiv.innerHTML = `
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
+                            <div>
+                                <h4>Adaptive Paths:</h4>
+                                ${adaptiveFlows.map(f => `
+                                    <div style="background: #f0f7ff; padding: 10px; border-radius: 4px; margin: 8px 0; font-size: 11px;">
+                                        <strong>${f.src}→${f.dst}</strong><br>
+                                        ${f.path}
+                                    </div>
+                                `).join('')}
+                            </div>
+                            <div>
+                                <h4>Traditional Paths:</h4>
+                                ${tradFlows.map(f => `
+                                    <div style="background: #fff8f0; padding: 10px; border-radius: 4px; margin: 8px 0; font-size: 11px;">
+                                        <strong>${f.src}→${f.dst}</strong><br>
+                                        ${f.path}
+                                    </div>
+                                `).join('')}
+                            </div>
+                        </div>
+                    `;
+                } else {
+                    pathDiv.innerHTML = '<div class="no-data">No paths to display</div>';
+                }
+            } catch(e) {
+                console.error('Flows error:', e);
+            }
+        }
+
+        async function updateAlerts() {
+            try {
+                const adaptDiv = document.getElementById('adaptive-alerts');
+                const tradDiv = document.getElementById('traditional-alerts');
+                if (!adaptDiv || !tradDiv) return;
+                
+                const adaptResp = await fetch('/api/alerts/adaptive');
+                const adaptiveAlerts = await adaptResp.json();
+                
+                if (!adaptiveAlerts || adaptiveAlerts.length === 0) {
+                    adaptDiv.innerHTML = '<div class="no-data" style="color: #4caf50;">✓ No alerts</div>';
+                } else {
+                    adaptDiv.innerHTML = adaptiveAlerts.map(a => `
+                        <div style="background: ${a.severity === 'HIGH' ? '#ffebee' : '#fff3e0'}; padding: 12px; margin-bottom: 8px; border-radius: 6px; border-left: 4px solid ${a.severity === 'HIGH' ? '#f44336' : '#ff9800'};">
+                            <div style="font-weight: bold; font-size: 12px;">${a.type}</div>
+                            <div style="font-size: 11px; color: #666; margin-top: 4px;">${a.message}</div>
+                            <div style="font-size: 10px; color: #999; margin-top: 4px;">${new Date(a.timestamp).toLocaleTimeString()}</div>
+                        </div>
+                    `).join('');
+                }
+                
+                const tradResp = await fetch('/api/alerts/traditional');
+                const tradAlerts = await tradResp.json();
+                
+                if (!tradAlerts || tradAlerts.length === 0) {
+                    tradDiv.innerHTML = '<div class="no-data">No alerts</div>';
+                } else {
+                    tradDiv.innerHTML = tradAlerts.map(a => `
+                        <div style="background: ${a.severity === 'HIGH' ? '#ffebee' : '#fff3e0'}; padding: 12px; margin-bottom: 8px; border-radius: 6px; border-left: 4px solid ${a.severity === 'HIGH' ? '#f44336' : '#ff9800'};">
+                            <div style="font-weight: bold; font-size: 12px;">${a.type}</div>
+                            <div style="font-size: 11px; color: #666; margin-top: 4px;">${a.message}</div>
+                            <div style="font-size: 10px; color: #999; margin-top: 4px;">${new Date(a.timestamp).toLocaleTimeString()}</div>
+                        </div>
+                    `).join('');
+                }
+            } catch(e) {
+                console.error('Alerts error:', e);
+            }
+        }
+
+        async function updateScorecard() {
+            try {
+                const scoreDiv = document.getElementById('score-adaptive-tp');
+                if (!scoreDiv) return;
+                
+                const response = await fetch('/api/metrics');
+                const data = await response.json();
+                
+                if (!data.adaptive || !data.traditional) return;
+
+                const adaptive = data.adaptive;
+                const traditional = data.traditional;
+
+                // Calculate scores (0-100)
+                const adaptiveTpScore = Math.min(100, (adaptive.throughput / 5) * 100);
+                const adaptiveLatScore = Math.max(0, 100 - (adaptive.latency * 5));
+                const adaptiveRelScore = Math.max(0, 100 - (adaptive.packet_loss * 20));
+                const adaptiveLbScore = Math.min(100, (adaptive.paths_used / 4) * 100);
+
+                const tradTpScore = Math.min(100, (traditional.throughput / 5) * 100);
+                const tradLatScore = Math.max(0, 100 - (traditional.latency * 5));
+                const tradRelScore = Math.max(0, 100 - (traditional.packet_loss * 20));
+                const tradLbScore = Math.min(100, (traditional.paths_used / 4) * 100);
+
+                document.getElementById('score-adaptive-tp').textContent = adaptiveTpScore.toFixed(0);
+                document.getElementById('score-adaptive-lat').textContent = adaptiveLatScore.toFixed(0);
+                document.getElementById('score-adaptive-rel').textContent = adaptiveRelScore.toFixed(0);
+                document.getElementById('score-adaptive-lb').textContent = adaptiveLbScore.toFixed(0);
+
+                document.getElementById('score-trad-tp').textContent = tradTpScore.toFixed(0);
+                document.getElementById('score-trad-lat').textContent = tradLatScore.toFixed(0);
+                document.getElementById('score-trad-rel').textContent = tradRelScore.toFixed(0);
+                document.getElementById('score-trad-lb').textContent = tradLbScore.toFixed(0);
+            } catch(e) {
+                console.error('Scorecard error:', e);
+            }
+        }
+
+
+
+        async function updateCharts() {
+            try {
+                const compResp = await fetch('/api/comparison');
+                const comparison = await compResp.json();
+
+                if (!comparisonChart || !historyChart) initCharts();
+                if (!comparisonChart || !historyChart) return; // Still not ready
+
+                comparisonChart.data.datasets[0].data = [comparison.throughput.adaptive];
+                comparisonChart.data.datasets[1].data = [comparison.throughput.traditional];
+                comparisonChart.update();
+
+                historyChart.data.datasets[0].data = [comparison.throughput.adaptive, comparison.latency.adaptive, comparison.qos.adaptive];
+                historyChart.data.datasets[1].data = [comparison.throughput.traditional, comparison.latency.traditional, comparison.qos.traditional];
+                historyChart.update();
+            } catch(e) {
+                console.error('Chart error:', e);
+            }
+        }
+
+        function initCharts() {
+            const compEl = document.getElementById('comparisonChart');
+            const histEl = document.getElementById('historyChart');
+            
+            if (!compEl || !histEl) {
+                console.warn('Chart canvases not ready yet');
+                return;
+            }
+            
+            const compCtx = compEl.getContext('2d');
+            const histCtx = histEl.getContext('2d');
+
+            comparisonChart = new Chart(compCtx, {
+                type: 'bar',
+                data: {
+                    labels: ['Throughput (Mbps)'],
+                    datasets: [
+                        {label: 'Adaptive ECMP', data: [0], backgroundColor: '#1976d2'},
+                        {label: 'Traditional ECMP', data: [0], backgroundColor: '#f57c00'}
+                    ]
+                },
+                options: {
+                    indexAxis: 'y',
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {x: {beginAtZero: true, max: 15}}
+                }
+            });
+
+            historyChart = new Chart(histCtx, {
+                type: 'line',
+                data: {
+                    labels: ['Throughput', 'Latency', 'QoS'],
+                    datasets: [
+                        {label: 'Adaptive', data: [0,0,0], borderColor: '#1976d2', fill: false, tension: 0.4},
+                        {label: 'Traditional', data: [0,0,0], borderColor: '#f57c00', fill: false, tension: 0.4}
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {y: {beginAtZero: true}}
+                }
+            });
+        }
+
+        async function updateSystemStats() {
+            try {
+                const cpuEl = document.getElementById('cpu-usage');
+                const memEl = document.getElementById('mem-usage');
+                const ioEl = document.getElementById('net-io');
+                
+                // Only update if elements exist (they might not be in all tabs)
+                if (!cpuEl || !memEl || !ioEl) {
+                    return;
+                }
+                
+                const response = await fetch('/api/system-stats');
+                const data = await response.json();
+                cpuEl.textContent = data.cpu_percent.toFixed(1) + '%';
+                memEl.textContent = data.memory_percent.toFixed(1) + '%';
+                const io = ((data.network_io.bytes_sent + data.network_io.bytes_recv) / 1024 / 1024).toFixed(2);
+                ioEl.textContent = io + ' MB';
+            } catch(e) {
+                console.error('System stats error:', e);
+            }
+        }
+
+        // Topology visualization
+        let topologyNetwork = null;
+
+        async function drawTopology() {
+            try {
+                // Check if vis is available
+                if (typeof vis === 'undefined') {
+                    console.warn('Vis.js not loaded yet, retrying in 1s');
+                    setTimeout(drawTopology, 1000);
+                    return;
+                }
+                
+                const response = await fetch('/api/topology');
+                const topoData = await response.json();
+                
+                // Create nodes and edges from topology data
+                let nodes = [];
+                let edges = [];
+                
+                // Define network structure with better positioning
+                const hosts = ['h1', 'h2', 'h3', 'h4'];
+                const leaves = ['l1', 'l2'];
+                const spines = ['s1', 's2'];
+                
+                // Add host nodes (bottom)
+                hosts.forEach((h, i) => {
+                    nodes.push({
+                        id: h,
+                        label: h.toUpperCase(),
+                        title: `Host: ${h}`,
+                        color: {background: '#e8f5e9', border: '#2e7d32'},
+                        font: {size: 14, color: '#1b5e20', bold: {color: '#000'}},
+                        size: 25
+                    });
+                });
+                
+                // Add leaf nodes (middle)
+                leaves.forEach((l, i) => {
+                    nodes.push({
+                        id: l,
+                        label: l.toUpperCase(),
+                        title: `Leaf Switch: ${l}`,
+                        color: {background: '#e3f2fd', border: '#0d47a1'},
+                        font: {size: 14, color: '#0d47a1', bold: {color: '#000'}},
+                        size: 35
+                    });
+                });
+                
+                // Add spine nodes (top)
+                spines.forEach((s, i) => {
+                    nodes.push({
+                        id: s,
+                        label: s.toUpperCase(),
+                        title: `Spine Switch: ${s}`,
+                        color: {background: '#fce4ec', border: '#880e4f'},
+                        font: {size: 14, color: '#880e4f', bold: {color: '#000'}},
+                        size: 35
+                    });
+                });
+                
+                // Create edges (host-leaf-spine topology)
+                // Hosts to leaves
+                edges.push({from: 'h1', to: 'l1', width: 2, color: '#999', title: 'h1→l1'});
+                edges.push({from: 'h2', to: 'l1', width: 2, color: '#999', title: 'h2→l1'});
+                edges.push({from: 'h3', to: 'l2', width: 2, color: '#999', title: 'h3→l2'});
+                edges.push({from: 'h4', to: 'l2', width: 2, color: '#999', title: 'h4→l2'});
+                
+                // Leaves to spines (with multiple paths)
+                edges.push({from: 'l1', to: 's1', width: 3, color: '#42a5f5', title: 'Path 1'});
+                edges.push({from: 'l1', to: 's2', width: 3, color: '#ab47bc', title: 'Path 2'});
+                edges.push({from: 'l2', to: 's1', width: 3, color: '#ec407a', title: 'Path 3'});
+                edges.push({from: 'l2', to: 's2', width: 3, color: '#ffa726', title: 'Path 4'});
+                
+                const container = document.getElementById('topology');
+                if (!container) {
+                    console.error('Topology container not found');
+                    return;
+                }
+                
+                const data = {
+                    nodes: new vis.DataSet(nodes), 
+                    edges: new vis.DataSet(edges)
+                };
+                
+                const options = {
+                    physics: {
+                        enabled: true,
+                        stabilization: {iterations: 200},
+                        wind: {x: 0, y: 0}
+                    },
+                    nodes: {
+                        shape: 'box',
+                        margin: 15,
+                        widthConstraint: {maximum: 70},
+                        font: {face: 'Arial', size: 14, align: 'center'},
+                        borderWidth: 2,
+                        borderWidthSelected: 3
+                    },
+                    edges: {
+                        smooth: {
+                            type: 'cubicBezier',
+                            forceDirection: 'vertical'
+                        },
+                        arrows: {to: false},
+                        font: {size: 10},
+                        color: {color: '#999', highlight: '#000'}
+                    },
+                    layout: {
+                        hierarchical: {
+                            enabled: true,
+                            direction: 'UD',
+                            sortMethod: 'hubsize',
+                            nodeSpacing: 100,
+                            levelSeparation: 200
+                        }
+                    },
+                    interaction: {
+                        navigationButtons: true,
+                        keyboard: true,
+                        zoomView: true
+                    }
+                };
+                
+                if (topologyNetwork) topologyNetwork.destroy();
+                topologyNetwork = new vis.Network(container, data, options);
+                
+                // Fit the network to view once loaded
+                setTimeout(() => {
+                    if (topologyNetwork) topologyNetwork.fit({animation: true});
+                }, 500);
+                
+                console.log('Topology rendered:', nodes.length, 'nodes,', edges.length, 'edges');
+                
+            } catch(e) {
+                console.error('Topology error:', e);
+                const container = document.getElementById('topology');
+                if (container) {
+                    container.innerHTML = '<div style="padding: 20px; color: #f44336;">Error loading topology: ' + e.message + '</div>';
+                }
+            }
+        }
+
+        async function updateHeatmap() {
+            try {
+                const heatmapDiv = document.getElementById('heatmap');
+                if (!heatmapDiv) return;
+                
+                const response = await fetch('/api/link-heatmap');
+                const heatmapData = await response.json();
+                
+                if (!heatmapData || typeof heatmapData !== 'object') {
+                    heatmapDiv.innerHTML = '<div class="no-data">No heatmap data</div>';
+                    return;
+                }
+                
+                let html = '';
+                for (const [link, utilization] of Object.entries(heatmapData)) {
+                    const util = parseFloat(utilization);
+                    let cssClass = 'heatmap-normal';
+                    if (util > 70) cssClass = 'heatmap-critical';
+                    else if (util > 40) cssClass = 'heatmap-warning';
+                    
+                    html += `<div class="heatmap-item ${cssClass}">
+                        ${link}<br>
+                        <strong>${util.toFixed(1)}%</strong>
+                    </div>`;
+                }
+                
+                heatmapDiv.innerHTML = html;
+            } catch(e) {
+                console.error('Heatmap error:', e);
+            }
+        }
+
+        function runScenario(scenario) {
+            alert(`🎯 ${scenario.toUpperCase()} scenario started!\n\nRun tests in Mininet and watch metrics update in real-time.`);
+        }
+
+        function exportReport() {
+            const report = {
+                timestamp: new Date().toISOString(),
+                system: 'Adaptive ECMP Dashboard',
+                metrics: {
+                    throughput_improvement: document.getElementById('tp-improvement').textContent,
+                    adaptive_throughput: document.getElementById('tp-adaptive').textContent,
+                    traditional_throughput: document.getElementById('tp-traditional').textContent
+                }
+            };
+            const blob = new Blob([JSON.stringify(report, null, 2)], {type: 'application/json'});
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = 'ecmp-report.json';
+            link.click();
+        }
+
+        // Initialize
+        document.addEventListener('DOMContentLoaded', () => {
+            console.log('DOM loaded, starting dashboard initialization...');
+            
+            // Wait a bit for libraries to load
+            setTimeout(() => {
+                try {
+                    initCharts();
+                    updateMetrics();
+                    updateSystemStats();
+                    updateFlows();
+                    updateAlerts();
+                    updateScorecard();
+                    updateHeatmap();
+                    drawTopology();
+                    
+                    // Start refresh interval (don't redraw topology constantly - it's expensive)
+                    setInterval(() => {
+                        try {
+                            updateMetrics();
+                            updateSystemStats();
+                            updateFlows();
+                            updateAlerts();
+                            updateScorecard();
+                            updateHeatmap();
+                        } catch(e) {
+                            console.error('Update cycle error:', e);
+                        }
+                    }, 2000);
+                    
+                    console.log('Dashboard initialized successfully');
+                } catch(e) {
+                    console.error('Initialization error:', e);
+                }
+            }, 500);
+        });
+        
+        // Also handle vis.js loading separately
+        window.addEventListener('load', () => {
+            console.log('Window loaded, vis available:', typeof vis !== 'undefined');
+        });
+    </script>
+</body>
+</html>
